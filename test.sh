@@ -31,7 +31,6 @@ function test-check {
     if [[ $prompt == "n" || $prompt == "N" || $prompt == "no" || $prompt == "No" ]]
     then
         tput setaf 1; echo "test failed with" $policy; tput setaf 7;
-        cleanup
         exit 1
     fi
 }
@@ -77,31 +76,22 @@ function port-specific-test {
 
 
 function port-ordering {
-    policyfile="policies/egress-to-dns-and-internet-order1.yaml"
-    tput setaf 2; echo "Testing" $policyfile; tput setaf 7;
-    k apply -f $policyfile
-    coredns=$(k get po -o wide -n kube-system | grep core | awk {'print "" $6'})
-    nginx=$(k get po -o wide -n test | grep nginx | awk {'print "" $6'})
-    tput setaf 3; k run test --image=alpine --namespace=test --rm --restart=Never -it  -- sh -c "sleep 3s; ping -c 3 $coredns"
-    tput setaf 7; read -p "Did coredns ($coredns) respond? <Y/n> " prompt
-    test-check $prompt ${FUNCNAME[0]}
-    tput setaf 3; k run test --image=alpine --namespace=test --rm --restart=Never -it  -- sh -c "sleep 3s; ping -c 3 $nginx"
-    tput setaf 7; read -p "Did nginx ($nginx) respond? <Y/n> " prompt
-    test-check $prompt ${FUNCNAME[0]}
-    k delete -f $policyfile
-
-    policyfile="policies/egress-to-dns-and-internet-order2.yaml"
-    tput setaf 2; echo "Testing" $policyfile; tput setaf 7;
-    k apply -f $policyfile
-    coredns=$(k get po -o wide -n kube-system | grep core | awk {'print "" $6'})
-    nginx=$(k get po -o wide -n test | grep nginx | awk {'print "" $6'})
-    tput setaf 3; k run test --image=alpine --namespace=test --rm --restart=Never -it  -- sh -c "sleep 3s; ping -c 3 $coredns"
-    tput setaf 7; read -p "Did coredns ($coredns) respond? <Y/n> " prompt
-    test-check $prompt ${FUNCNAME[0]}
-    tput setaf 3; k run test --image=alpine --namespace=test --rm --restart=Never -it  -- sh -c "sleep 3s; ping -c 3 $nginx"
-    tput setaf 7; read -p "Did nginx ($nginx) respond? <Y/n> " prompt
-    test-check $prompt ${FUNCNAME[0]}
-    k delete -f $policyfile
+    for policyfile in "policies/egress-to-dns-and-internet-order1.yaml" "policies/egress-to-dns-and-internet-order2.yaml"; do
+        tput setaf 2; echo "Testing" $policyfile; tput setaf 7;
+        k apply -f $policyfile
+        coredns=$(k get po -o wide -n kube-system | grep core | awk {'print "" $6'})
+        nginx=$(k get po -o wide -n test | grep nginx | awk {'print "" $6'})
+        tput setaf 3; k run test --image=alpine --namespace=test --labels=app=test --rm --restart=Never -it  -- sh -c "sleep 3s; ping -W 3 -c 3 $coredns"
+        tput setaf 7; read -p "Did coredns ($coredns) respond? <Y/n> " prompt
+        test-check $prompt ${FUNCNAME[0]}
+        tput setaf 3; k run test --image=alpine --namespace=test --labels=app=test --rm --restart=Never -it  -- sh -c "sleep 3s; ping -W 3 -c 3 $nginx"
+        tput setaf 7; read -p "Did nginx ($nginx) fail to respond? <Y/n> " prompt
+        test-check $prompt ${FUNCNAME[0]}
+        tput setaf 3; k run test --image=alpine --namespace=test --labels=app=test --rm --restart=Never -it  -- sh -c "sleep 3s; ping -W 3 -c 3 1.1.1.1"
+        tput setaf 7; read -p "Did 1.1.1.1 respond? <Y/n> " prompt
+        test-check $prompt ${FUNCNAME[0]}
+        k delete -f $policyfile
+    done 
 }
 
 
