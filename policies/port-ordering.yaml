@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+    name: firewall-test
+    namespace: test
+spec:
+    policyTypes:
+        - Egress
+    podSelector:
+        matchLabels:
+            app: test
+    egress:
+        - to:
+              - ipBlock:
+                    cidr: 151.101.192.67/24
+          ports:
+              - protocol: TCP
+                port: 80
+        - to:
+              - ipBlock:
+                    cidr: 151.101.128.67/24
+          ports:
+              - port: 443
+                protocol: TCP
