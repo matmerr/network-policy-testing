@@ -18,6 +18,8 @@ function setup {
     k create ns test
     k create ns test2
     k run nginx --image=nginx --namespace=test --labels app=nginx --expose --port 80 --generator=run-pod/v1
+    k run nginx-no-label --image=nginx --namespace=test --expose --port 80 --generator=run-pod/v1
+    sleep 3s
 }
 
 function cleanup {
@@ -62,7 +64,7 @@ function default-allow-egress {
 }
 
 function port-specific-test {
-    policyfile="policies/port-ordering.yaml"
+    policyfile="policies/port-specific-test.yaml"
     tput setaf 2; echo "Testing" $policyfile; tput setaf 7;
     k apply -f $policyfile
     tput setaf 3; k run test --image=alpine --namespace=test --rm --restart=Never -it  -- sh -c "sleep 3s; wget -O- -T 3 http://151.101.192.67:80"
@@ -80,20 +82,68 @@ function port-ordering {
         tput setaf 2; echo "Testing" $policyfile; tput setaf 7;
         k apply -f $policyfile
         coredns=$(k get po -o wide -n kube-system | grep core | awk {'print "" $6'})
-        nginx=$(k get po -o wide -n test | grep nginx | awk {'print "" $6'})
+        nginx=$(k get po -o wide -n test -l app=nginx | grep nginx | awk {'print "" $6'})
         tput setaf 3; k run test --image=alpine --namespace=test --labels=app=test --rm --restart=Never -it  -- sh -c "sleep 3s; ping -W 3 -c 3 $coredns"
         tput setaf 7; read -p "Did coredns ($coredns) respond? <Y/n> " prompt
         test-check $prompt ${FUNCNAME[0]}
-        tput setaf 3; k run test --image=alpine --namespace=test --labels=app=test --rm --restart=Never -it  -- sh -c "sleep 3s; ping -W 3 -c 3 $nginx"
+        tput setaf 3; k run test --image=alpine --namespace=test --labels=app=test --rm --restart=Never -it  -- sh -c "sleep 3s; wget -qO- -T 3 $nginx"
         tput setaf 7; read -p "Did nginx ($nginx) fail to respond? <Y/n> " prompt
         test-check $prompt ${FUNCNAME[0]}
-        tput setaf 3; k run test --image=alpine --namespace=test --labels=app=test --rm --restart=Never -it  -- sh -c "sleep 3s; ping -W 3 -c 3 1.1.1.1"
+        tput setaf 3; k run test --image=alpine --namespace=test --labels=app=test --rm --restart=Never -it  -- sh -c "sleep 3s; wget -qO- -T 3 1.1.1.1"
         tput setaf 7; read -p "Did 1.1.1.1 respond? <Y/n> " prompt
         test-check $prompt ${FUNCNAME[0]}
         k delete -f $policyfile
     done 
 }
 
+function empty-ingress {
+    policyfile="policies/allow-external-empty-ingress.yaml"
+    tput setaf 2; echo "Testing" $policyfile; tput setaf 7;
+    k apply -f $policyfile
+    nginx=$(k get po -o wide -n test -l app=nginx | grep nginx | awk {'print "" $6'})
+    tput setaf 3; k run test --image=alpine --namespace=test --labels=app=test --rm --restart=Never -it  -- sh -c "sleep 3s; wget -qO- -T 3 $nginx"
+    tput setaf 7; read -p "Did nginx ($nginx) respond? <Y/n> " prompt
+    test-check $prompt ${FUNCNAME[0]}
+    k delete -f $policyfile
+}
+
+
+
+function multi-policy-ordering {
+    for policyfile in "policies/jump-test-order1.yaml" "policies/jump-test-order2.yaml"; do
+        tput setaf 2; echo "Testing" $policyfile; tput setaf 7;
+        k apply -f $policyfile
+        coredns=$(k get po -o wide -n kube-system | grep core | awk {'print "" $6'})
+        nginx=$(k get po -o wide -n test -l app=nginx | grep nginx | awk {'print "" $6'})
+        tput setaf 3; k run test --image=alpine --namespace=test --labels=app=test --rm --restart=Never -it  -- sh -c "sleep 3s; ping -W 3 -c 3 $coredns"
+        tput setaf 7; read -p "Did coredns ($coredns) respond? <Y/n> " prompt
+        test-check $prompt ${FUNCNAME[0]}
+        tput setaf 3; k run test --image=alpine --namespace=test --labels=app=test --rm --restart=Never -it  -- sh -c "sleep 3s; nslookup microsoft.com"
+        tput setaf 7; read -p "Did microsoft.com resolve? <Y/n> " prompt
+        test-check $prompt ${FUNCNAME[0]}
+        tput setaf 3; k run test --image=alpine --namespace=test --labels=app=test --rm --restart=Never -it  -- sh -c "sleep 3s; wget -qO- -T 3 1.1.1.1"
+        tput setaf 7; read -p "Did 1.1.1.1 respond? <Y/n> " prompt
+        test-check $prompt ${FUNCNAME[0]}
+
+        tput setaf 1; echo "Testing without app label"; tput setaf 7;
+        tput setaf 3; k run test --image=alpine --namespace=test --rm --restart=Never -it  -- sh -c "sleep 3s; ping -W 3 -c 3 $coredns"
+        tput setaf 7; read -p "Did coredns ($coredns) fail to respond? <Y/n> " prompt
+        test-check $prompt ${FUNCNAME[0]}
+        tput setaf 3; k run test --image=alpine --namespace=test --rm --restart=Never -it  -- sh -c "sleep 3s; nslookup microsoft.com"
+        tput setaf 7; read -p "Did microsoft.com resolve? <Y/n> " prompt
+        test-check $prompt ${FUNCNAME[0]}
+        tput setaf 3; k run test --image=alpine --namespace=test --rm --restart=Never -it  -- sh -c "sleep 3s; wget -qO- -T 3 1.1.1.1"
+        tput setaf 7; read -p "Did 1.1.1.1 fail to respond? <Y/n> " prompt
+        test-check $prompt ${FUNCNAME[0]}
+
+        k delete -f $policyfile
+    done 
+}
+
+
+function pod {
+    k run test --image=matmerr/toolbox --namespace=test --labels=app=test --rm --restart=Never -it --command -- /bin/bash
+}
 
 if [ "$#" -ne 1 ]
 then
@@ -101,8 +151,11 @@ then
     setup
     default-deny-egress
     default-allow-egress
+    port-specific-test
+    port-ordering
+    empty-ingress
+    multi-policy-ordering
     cleanup
 else
     "$@"
 fi
-
